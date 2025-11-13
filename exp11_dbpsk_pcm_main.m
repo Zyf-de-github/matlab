@@ -48,6 +48,81 @@ title('PCM编码后bit（前400位）');
 
 %% ========= (C) DBPSK 调制 =========
 [t, tx] = DBPSK_Modulation(bits_pcm, Fc, fs, Rb);
+
+
+%% ========= (C.X) 码型变换：矩形脉冲 vs SRRC 脉冲 =========
+
+% 取前 20 个比特做脉冲展示（太多画不清楚）
+Nshow = 20;
+bps = bits_pcm(1:Nshow);
+
+% 映射为 ±1
+symbols = 2*bps - 1;
+
+% ========== 1) 矩形脉冲（未成形）==========
+rect = upsample(symbols, Ns);  % 上采样后保持一个矩形符号
+rect_wave = filter(ones(1, Ns), 1, rect); % 矩形成形（累加）
+
+% ========== 2) SRRC 脉冲（根升余弦）==========
+beta = 0.35;
+span = 8;
+srrc = rcosdesign(beta, span, Ns, 'sqrt');
+srrc_wave = filter(srrc, 1, upsample(symbols, Ns));
+
+% ========== 画两者对比 ==========
+figure;
+subplot(2,1,1);
+plot(rect_wave, 'b'); grid on;
+title('矩形脉冲成形（矩形滤波器）');
+ylabel('幅度');
+xlim([0, Nshow*Ns]);
+
+subplot(2,1,2);
+plot(srrc_wave, 'r'); grid on;
+title('SRRC 脉冲成形（根升余弦）');
+xlabel('样本点'); ylabel('幅度');
+xlim([0, Nshow*Ns]);
+%% ========= (C.Y) 乘法器：脉冲成形后的调制（基带 → 带通） ==========
+
+% 时间轴匹配（取与 rect_wave 相同长度）
+t_show = (0:length(rect_wave)-1)/fs;
+
+% 载波
+carrier = cos(2*pi*Fc*t_show);
+
+% 1) 矩形脉冲 × 载波
+rect_mod = rect_wave .* carrier;
+
+% 2) SRRC 脉冲 × 载波
+srrc_mod = srrc_wave .* carrier;
+
+% 仅画前 Nplot 个样本（为了清晰对比）
+Nplot = min(2000, length(rect_wave));   % 自动限制2000点
+
+%% ======== 绘图：调制前 vs 调制后 ========
+figure;
+
+subplot(2,2,1);
+plot(rect_wave(1:Nplot),'b'); grid on;
+title('矩形脉冲（基带）');
+ylabel('幅度');
+
+subplot(2,2,2);
+plot(rect_mod(1:Nplot),'b'); grid on;
+title('矩形脉冲 × cos(2πF_ct)（带通）');
+ylim([-2 2]);
+
+subplot(2,2,3);
+plot(srrc_wave(1:Nplot),'r'); grid on;
+title('SRRC 脉冲（基带）');
+xlabel('样本点'); ylabel('幅度');
+
+subplot(2,2,4);
+plot(srrc_mod(1:Nplot),'r'); grid on;
+title('SRRC 脉冲 × cos(2πF_ct)（带通）');
+xlabel('样本点');
+
+
 %============================================================================
 % 分离 I/Q 信号（实部是 I 路，虚部是 Q 路）
 %CH1 = real(tx);  % I 路信号
