@@ -1,75 +1,76 @@
 clc; clear; close all;
 addpath('./pcm');
+
 %% ========= 第13组参数 =========
 Rb = 64e3;                 % 比特率 
 Fc = 10*Rb;                % 载波
-fs = 12*Fc;                % 采样率（注意：较高，内存别设太长序列）
-Ns = fs/Rb;                % 每比特采样点（应为整数：这里=120）
-assert(abs(Ns-round(Ns))<1e-12,'fs/Rb 必须为整数'); Ns = round(Ns);
+fs = 12*Fc;                % 采样率（应满足 fs/Rb 为整数）
+Ns = fs/Rb;                % 每比特采样点
+assert(abs(Ns-round(Ns))<1e-12,'fs/Rb 必须为整数'); 
+Ns = round(Ns);
 
-%% ========= (A) 生成模拟输入：3正弦叠加 =========
+%% ========= (A) 生成模拟输入：3 正弦叠加 =========
 Fs_in = 48e3;                          % 生成"模拟信号"的采样率
 Tsig  = 0.25;                          % 信号时长，秒（可调）
 t_in  = (0:1/Fs_in:Tsig-1/Fs_in);
 
-% --- 分别的三路 ---
-f1=3; f2=10; f3=20;                     % 三个频率
-a1=0.8; a2=0.5; a3=0.3;                 % 不同幅度
+% --- 三路正弦 ---
+f1=3; f2=10; f3=20;                    % 三个频率
+a1=0.8; a2=0.5; a3=0.3;                % 不同幅度
 
 sig1 = a1*sin(2*pi*f1*t_in);
 sig2 = a2*sin(2*pi*f2*t_in);
 sig3 = a3*sin(2*pi*f3*t_in);
 
-% --- 合成 ---
+% --- 合成并归一 ---
 y_analog = sig1 + sig2 + sig3;
 y_analog = y_analog/max(abs(y_analog))*0.98;   % 归一防溢
 
-% --- 画图 ---
+% --- 画三路 + 合成波形 ---
 figure;
 plot(t_in, sig1, 'r'); hold on;
 plot(t_in, sig2, 'g');
 plot(t_in, sig3, 'b');
-plot(t_in, y_analog, 'W','LineWidth',1.2);
+plot(t_in, y_analog, 'w','LineWidth',1.2);
 grid on;
-
 legend('sin1','sin2','sin3','sum');
 title('输入模拟信号（3正弦叠加 + 单独显示三路）');
 xlabel('t/s'); ylabel('amp');
-%% ========= (B) PCM 13折线编码（8kHz） =========
+
+%% ========= (B) PCM 13 折线编码（8kHz） =========
 sampleVal = Rb/8; % 8 kHz ⇒ 8 bit/样本 ⇒ 64 kbps，刚好匹配 Rb
 [sampleData, bits_pcm] = PCM_13Encode(y_analog, Fs_in, sampleVal);
 
-% 画PCM抽样后的波形与bit流
+% PCM 抽样后波形
 t_smp = (0:numel(sampleData)-1)/sampleVal;
 figure; plot(t_smp, sampleData); grid on;
-title('PCM抽样后波形'); xlabel('t/s');
+title('PCM 抽样后波形'); xlabel('t/s');
+
+% PCM 编码 bit 流（截前 100 位展示）
 figure; stairs(bits_pcm(1:100)); ylim([-0.2 1.2]); grid on;
-title('PCM编码后bit（前400位）');
+title('PCM 编码后 bit（前 100 位）');
 
-%% ========= (C) DBPSK 调制 =========
-[t, tx] = DBPSK_Modulation(bits_pcm, Fc, fs, Rb);
+%% ========= (C.X) 码型变换：矩形脉冲 vs SRRC 脉冲（演示） =========
 
-
-%% ========= (C.X) 码型变换：矩形脉冲 vs SRRC 脉冲 =========
-
-% 取前 20 个比特做脉冲展示（太多画不清楚）
 Nshow = 20;
 bps = bits_pcm(1:Nshow);
 
-% 映射为 ±1
-symbols = 2*bps - 1;
+% bit → ±1
+symbols_demo = 2*bps - 1;
 
-% ========== 1) 矩形脉冲（未成形）==========
-rect = upsample(symbols, Ns);  % 上采样后保持一个矩形符号
-rect_wave = filter(ones(1, Ns), 1, rect); % 矩形成形（累加）
+% SRRC 参数（演示 + 正式都用同一组）
+beta = 0.75;          % 滚降系数
+span = 8;             % 滤波器跨度（符号数）
+srrc = rcosdesign(beta, span, Ns, 'sqrt');   % 根升余弦脉冲
+delay_rrc = span * Ns;   % ★ 两个 SRRC 级联总群时延（符号数*Ns）
 
-% ========== 2) SRRC 脉冲（根升余弦）==========
-beta = 0.75;
-span = 8;
-srrc = rcosdesign(beta, span, Ns, 'sqrt');
-srrc_wave = filter(srrc, 1, upsample(symbols, Ns));
+% ========== 1) 矩形脉冲 ==========
+rect = upsample(symbols_demo, Ns);
+rect_wave = filter(ones(1, Ns), 1, rect);
 
-% ========== 画两者对比 ==========
+% ========== 2) SRRC 脉冲 ==========
+srrc_wave_demo = filter(srrc, 1, upsample(symbols_demo, Ns));
+
 figure;
 subplot(2,1,1);
 plot(rect_wave, 'b'); grid on;
@@ -78,30 +79,21 @@ ylabel('幅度');
 xlim([0, Nshow*Ns]);
 
 subplot(2,1,2);
-plot(srrc_wave, 'r'); grid on;
+plot(srrc_wave_demo, 'r'); grid on;
 title('SRRC 脉冲成形（根升余弦）');
 xlabel('样本点'); ylabel('幅度');
 xlim([0, Nshow*Ns]);
-%% ========= (C.Y) 乘法器：脉冲成形后的调制（基带 → 带通） ==========
 
-% 时间轴匹配（取与 rect_wave 相同长度）
+%% ========= (C.Y) 乘法器：基带 → 带通（演示） =========
 t_show = (0:length(rect_wave)-1)/fs;
+carrier_demo = cos(2*pi*Fc*t_show);
 
-% 载波
-carrier = cos(2*pi*Fc*t_show);
+rect_mod = rect_wave .* carrier_demo;
+srrc_mod_demo = srrc_wave_demo .* carrier_demo;
 
-% 1) 矩形脉冲 × 载波
-rect_mod = rect_wave .* carrier;
+Nplot = min(2000, length(rect_wave));
 
-% 2) SRRC 脉冲 × 载波
-srrc_mod = srrc_wave .* carrier;
-
-% 仅画前 Nplot 个样本（为了清晰对比）
-Nplot = min(2000, length(rect_wave));   % 自动限制2000点
-
-%% ======== 绘图：调制前 vs 调制后 ========
 figure;
-
 subplot(2,2,1);
 plot(rect_wave(1:Nplot),'b'); grid on;
 title('矩形脉冲（基带）');
@@ -113,44 +105,20 @@ title('矩形脉冲 × cos(2πF_ct)（带通）');
 ylim([-2 2]);
 
 subplot(2,2,3);
-plot(srrc_wave(1:Nplot),'r'); grid on;
+plot(srrc_wave_demo(1:Nplot),'r'); grid on;
 title('SRRC 脉冲（基带）');
 xlabel('样本点'); ylabel('幅度');
 
 subplot(2,2,4);
-plot(srrc_mod(1:Nplot),'r'); grid on;
+plot(srrc_mod_demo(1:Nplot),'r'); grid on;
 title('SRRC 脉冲 × cos(2πF_ct)（带通）');
 xlabel('样本点');
 
+%% ========= (C.Z) 频谱：未成形 vs SRRC =========
+Nfft = min([4096, length(rect_mod), length(srrc_mod_demo)]);
 
-%============================================================================
-% 分离 I/Q 信号（实部是 I 路，虚部是 Q 路）
-%CH1 = real(tx);  % I 路信号
-%CH2 = imag(tx);  % Q 路信号
-
-% 设置 DA 输出的参数
-%divFreq = 30720000 / fs - 1;  % 分频值，确保 fs 与分频值匹配
-%dataNum = length(tx);         % 数据长度，应该与 tx 信号的长度匹配
-%isGain = 1;                   % 是否增益，设置为 1 表示增益
-
-% 调用 DA 输出函数，发送 I/Q 信号到硬件
-%DA_OUT(CH1, CH2, divFreq, dataNum, isGain);
-%============================================================================
-% 频谱（已调）
-[fx, SX] = simple_spectrum(tx, fs);
-figure; plot(fx/1e6, 20*log10(abs(SX)+1e-12)); grid on;
-xlabel('f / MHz'); ylabel('|X(f)| dB'); title('已调信号幅度谱（dB）');
-
-%% ========= (C.Z) SRRC 调制 vs 未成形调制：频谱对比 =========
-
-% 自动选择 FFT 点数（不超过信号长度）
-Nfft = min([4096, length(rect_mod), length(srrc_mod)]);
-
-% 1) 未成形矩形脉冲 × 载波
-[fx_rect, S_rect] = simple_spectrum(rect_mod(1:Nfft), fs);
-
-% 2) SRRC 脉冲成形 × 载波
-[fx_srrc, S_srrc] = simple_spectrum(srrc_mod(1:Nfft), fs);
+[fx_rect, S_rect]   = simple_spectrum(rect_mod(1:Nfft), fs);
+[fx_srrc, S_srrc]   = simple_spectrum(srrc_mod_demo(1:Nfft), fs);
 
 figure;
 subplot(2,1,1);
@@ -163,39 +131,64 @@ plot(fx_srrc/1e6, 20*log10(abs(S_srrc)+1e-12), 'r'); grid on;
 title('SRRC 脉冲成形后调制的带通信号频谱');
 xlabel('f / MHz'); ylabel('|X(f)| dB');
 
+%% ========= (C.real) 正式 DBPSK + SRRC 调制链路 =========
+disp("正在生成正式 DBPSK + SRRC 调制信号...");
 
+% 1) 全部 PCM bit → ±1
+symbols_full = 2*bits_pcm - 1;
 
+% 2) DBPSK 差分编码
+diff_syms = zeros(size(symbols_full));
+diff_syms(1) = symbols_full(1);
+for k = 2:length(symbols_full)
+    diff_syms(k) = diff_syms(k-1)*symbols_full(k);
+end
 
-%% ========= (D) 加噪（自写AWGN，不用工具箱） =========
-SNRdB = 10;  % 单次演示用
+% 3) 上采样
+up_syms = upsample(diff_syms, Ns);
+
+% 4) SRRC 脉冲成形（正式基带）
+tx_bb = filter(srrc, 1, up_syms);    % 发射基带
+
+% 5) 带通调制
+t = (0:length(tx_bb)-1)/fs;
+tx = tx_bb .* cos(2*pi*Fc*t);        % 发射带通
+
+disp("正式 SRRC 调制信号生成完毕。");
+
+% 正式已调信号频谱
+[fx, SX] = simple_spectrum(tx, fs);
+figure; plot(fx/1e6, 20*log10(abs(SX)+1e-12)); grid on;
+xlabel('f / MHz'); ylabel('|X(f)| dB'); title('正式已调信号幅度谱（dB）');
+
+%% ========= (D) 加噪（AWGN 信道） =========
+SNRdB = 10;  % 单点演示
 tx_pow = mean(tx.^2);
 npow   = tx_pow/10^(SNRdB/10);
-noise  = 0.2*sqrt(npow)*randn(size(tx));
-% rx     = tx + noise;
-rx=tx;
+noise  = sqrt(npow)*randn(size(tx));
+rx   = tx + noise;
+% rx = tx;    % 先看无噪声波形对齐
 
-% 波形片段
+% 波形片段（时域对比）
 seg = 1:min(4000, numel(t));
 figure; plot(t(seg), tx(seg), 'b', t(seg), rx(seg), 'r'); grid on;
-legend('tx','rx'); title(sprintf('DBPSK已调与加噪后波形, SNR=%.1f dB',SNRdB));
+legend('tx','rx'); 
+title(sprintf('DBPSK 已调与加噪后波形, SNR=%.1f dB',SNRdB));
 xlabel('t/s');
 
 %% ========= (D.X) 接收端：乘法器 × SRRC 匹配滤波 =========
-
-% (1) 本地载波
 t_rx = (0:length(rx)-1)/fs;
 local_carrier = cos(2*pi*Fc*t_rx);
 
-% (2) 乘法器：带通 → 基带
+% 带通 → 基带
 rx_bb = rx .* local_carrier;
 
-% (3) SRRC 匹配滤波（注意用与发送端相同的 srrc）
-rx_matched = filter(srrc, 1, rx_bb);
+% 匹配滤波（SRRC）
+rx_matched = filter(srrc, 1, rx_bb);   % 两个 SRRC 级联
 
-% (4) 画对比：带通 vs 乘法器后 vs SRRC 匹配滤波后
+% 画 rx / rx×cos / 匹配后
 figure;
 Nplot2 = min(2000, length(rx));
-
 subplot(3,1,1);
 plot(rx(1:Nplot2),'b'); grid on;
 title('接收信号 rx（带通）');
@@ -209,76 +202,218 @@ plot(rx_matched(1:Nplot2),'r'); grid on;
 title('SRRC 匹配滤波输出（基带信号）');
 xlabel('样本点');
 
+%% ========= (E) DBPSK 解调（自写 SRRC 版） =========
+% 使用匹配滤波后的 rx_matched 做差分解调 + 抽样判决
 
-%% ========= (E) DBPSK 解调（差分乘积+滑动平均） =========
-[bits_hat, eye_buf] = DBPSK_Demod(rx_matched, fs, Rb);
-%============================================================================
-% 分离 I/Q 信号（解调后的信号）
-%CH1 = real(rx);  % I 路信号
-%CH2 = imag(rx);  % Q 路信号
+% 全长解调
+bits_hat_all = dbpsk_srrc_demod(rx_matched, numel(bits_pcm), Ns, span);
 
-% 设置 DA 输出的参数
-%divFreq = 30720000 / fs - 1;  % 分频值，确保与系统设置匹配
-%dataNum = length(rx);         % 数据长度，应该与接收信号的长度一致
-%isGain = 1;                   % 是否增益，设置为 1 表示增益
+% 对齐比特长度为 8 的整数倍
+L_bits = floor(min(numel(bits_hat_all), numel(bits_pcm))/8)*8;
+bits_hat = bits_hat_all(1:L_bits);
+bits_ref = bits_pcm(1:L_bits);
 
-% 调用 DA 输出函数，发送解调后的信号到硬件
-%DA_OUT(CH1, CH2, divFreq, dataNum, isGain);  % 发送 I/Q 信号到硬件
-%============================================================================
-% 计算并显示解调后的误码率（BER）
-L = floor(numel(bits_hat) / 8) * 8;    % 对齐到8的整数倍
-bits_hat = bits_hat(1:L);               % 截取到8的整数倍长度
-bits_ref = bits_pcm(1:L);               % 参考比特流对齐
+%% ========= (E.X) SRRC 基带对齐 + 抽样点示意 =========
+disp('绘制 SRRC 匹配滤波输出与发射基带、抽样点比较...');
+
+tx_bb_full = tx_bb;
+rx_bb_full = rx_matched;
+
+% 发射基带到接收匹配输出只有一个 SRRC 的额外延迟 = span*Ns/2
+delay_rx_only = span*Ns/2;
+
+L_tx   = length(tx_bb_full);
+L_rx   = length(rx_bb_full);
+L_valid = min(L_tx, L_rx - delay_rx_only);
+
+if L_valid > 0
+    tx_aligned = tx_bb_full(1:L_valid);
+    rx_aligned = rx_bb_full(delay_rx_only+1 : delay_rx_only+L_valid);
+
+    Nplot3 = min(3000, L_valid);
+    figure;
+    plot(tx_aligned(1:Nplot3),'b'); hold on;
+    plot(rx_aligned(1:Nplot3),'r'); grid on;
+    legend('TX：SRRC 脉冲成形基带','RX：SRRC 匹配滤波输出（对齐后）');
+    title('SRRC 发射基带 vs 接收匹配滤波基带 对比');
+    xlabel('样本点');
+end
+
+% ==== 抽样位置（用于示意） ====
+start_pos = delay_rrc + 1;                  % 第一个符号采样点
+sample_pos = start_pos + (0:length(bits_ref)-1)*Ns;
+sample_pos = sample_pos(sample_pos <= length(rx_bb_full));
+
+rx_samples = rx_bb_full(sample_pos);
+rx_decision = rx_samples > 0;
+
+% 比特对比（原始 PCM bit vs 直接幅度判决 bit）
+Nshow_bits = min(500, length(rx_decision));
+figure;
+subplot(2,1,1);
+stem(1:Nshow_bits, bits_ref(1:Nshow_bits),'b','LineWidth',1.2);
+grid on;
+title('原始 PCM 比特（截取前若干位）');
+ylabel('bit'); xlim([1 Nshow_bits]);
+
+subplot(2,1,2);
+stem(1:Nshow_bits, rx_decision(1:Nshow_bits),'r','LineWidth',1.2);
+grid on;
+title('SRRC 抽样幅度判决得到的比特（示意）');
+xlabel('符号编号'); ylabel('bit'); xlim([1 Nshow_bits]);
+
+% SRRC 基带 + 抽样点标注
+Nplot_srrc = min(5000, length(rx_bb_full));
+figure;
+plot(rx_bb_full(1:Nplot_srrc),'m'); hold on; grid on;
+sample_pos_valid = sample_pos(sample_pos <= Nplot_srrc);
+stem(sample_pos_valid, rx_bb_full(sample_pos_valid),'r','filled');
+title('SRRC 匹配滤波基带信号 + 抽样点标注');
+xlabel('样本编号'); ylabel('幅度');
+legend('SRRC 基带','抽样点');
 
 %% ========= (F) BER 计算 =========
 BER_now = mean(xor(bits_ref, bits_hat));
-fprintf('单点SNR=%.1f dB时，BER=%.4e\n', SNRdB, BER_now);
+fprintf('单点 SNR = %.1f dB 时，BER = %.4e\n', SNRdB, BER_now);
 
-%% ========= (G) SRRC 匹配滤波后的眼图 =========
-Ns = fs/Rb;
-eye_sig = eye_buf(1:Ns*40);   % 截取40个符号
-eye_mat = reshape(eye_sig, Ns, []);
+%% ========= (FX) 四图对比：PCM 波形/比特 vs 解码 =========
+disp("绘制『四图对比』：PCM波形、SRRC波形、PCM比特、解调比特...");
+
+% ① PCM 原始采样波形 + PCM 抽样点
+Nplot_pcm = min(500, length(sampleData));
+
 figure;
-plot(eye_mat, 'y'); grid on;
-title('SRRC 匹配滤波后的眼图');
-xlabel('样本点'); ylabel('幅度');
+subplot(2,1,1);
+plot(t_smp(1:Nplot_pcm), sampleData(1:Nplot_pcm),'b'); hold on; grid on;
+title('① PCM 原始采样波形');
+xlabel('时间 (s)'); ylabel('幅度');
 
+sampleIndex_pcm = (0:length(bits_ref)-1) * (1/sampleVal);
+sampleIndex_pcm = sampleIndex_pcm(sampleIndex_pcm < t_smp(end));
 
-%% ========= (H) 频谱：关键数字信号 与 输入/输出模拟信号 =========
-% 输入模拟信号频谱（原48k）
+pcm_sample_pos = round(sampleIndex_pcm * sampleVal + 1);
+pcm_sample_pos = pcm_sample_pos(pcm_sample_pos <= length(sampleData));
+
+stem(t_smp(pcm_sample_pos), sampleData(pcm_sample_pos),'r','filled');
+legend('PCM 波形','PCM 抽样点');
+
+% ② SRRC 匹配滤波后的基带波形 + 抽样点
+Nplot_srrc = min(5000, length(rx_matched));
+subplot(2,1,2);
+plot(rx_matched(1:Nplot_srrc),'m'); hold on; grid on;
+title('② SRRC 匹配滤波基带信号 + 抽样点标注');
+xlabel('样本编号'); ylabel('幅度');
+
+sample_pos_valid = sample_pos(sample_pos <= Nplot_srrc);
+stem(sample_pos_valid, rx_matched(sample_pos_valid),'r','filled');
+legend('SRRC 基带','抽样点');
+
+% ③ PCM 原始比特
+Nshow_bits = min(80, length(bits_ref));
+figure;
+subplot(2,1,1);
+stem(1:Nshow_bits, bits_ref(1:Nshow_bits),'b','LineWidth',1.2);
+grid on;
+title('③ PCM 原始比特（前 80 位）');
+xlabel('符号编号'); ylabel('bit');
+xlim([1 Nshow_bits]);
+
+% ④ DBPSK 解调最终比特
+subplot(2,1,2);
+stem(1:Nshow_bits, bits_hat(1:Nshow_bits),'r','LineWidth',1.2);
+grid on;
+title('④ DBPSK+SRRC 解调比特（前 80 位）');
+xlabel('符号编号'); ylabel('bit');
+xlim([1 Nshow_bits]);
+
+%% ========= (G) 眼图（直接用 rx_matched） =========
+Leye = floor(length(rx_matched)/Ns) * Ns;
+if Leye > 0
+    eye_mat = reshape(rx_matched(1:Leye), Ns, []);
+    figure;
+    plot(eye_mat(:, 1: min(40, size(eye_mat,2))), 'y'); grid on;
+    title('接收端眼图（rx\_matched 折叠）');
+    xlabel('样本点'); ylabel('幅度');
+end
+
+%% ========= (H) 频谱：输入/输出模拟信号 =========
 [fa, SA] = simple_spectrum(y_analog, Fs_in);
 figure; plot(fa/1e3, 20*log10(abs(SA)+1e-12)); grid on;
 xlabel('f / kHz'); ylabel('|S(f)| dB'); title('输入模拟信号频谱');
 
-% 解码回的模拟信号
+% PCM 解码回"模拟"信号（8kHz 域）
 outData = PCM_13Decode(bits_hat);
 t_out = (0:numel(outData)-1)/sampleVal;
 
 figure; plot(t_smp, sampleData,'b'); hold on;
 plot(t_out, outData,'r'); grid on;
-legend('PCM抽样后(发送侧)','PCM解码后(接收侧)');
-title('输入/输出"模拟"波形（8kHz域）'); xlabel('t/s');
+legend('PCM 抽样后(发送侧)','PCM 解码后(接收侧)');
+title('输入/输出 "模拟" 波形（8kHz 域）'); xlabel('t/s');
 
 [fo, SO] = simple_spectrum(outData, sampleVal);
 figure; plot(fo/1e3, 20*log10(abs(SO)+1e-12)); grid on;
 xlabel('f / kHz'); ylabel('|S(f)| dB'); title('输出模拟信号频谱（解码后）');
 
-%% ========= (I) BER曲线：SNR扫描 =========
-SNRs = 0:2:14;  BERs = zeros(size(SNRs));
-for k=1:numel(SNRs)
-    npow = tx_pow/10^(SNRs(k)/10);
-    n = sqrt(npow)*randn(size(tx));
-    r = tx + n;
-    [bhat,~] = DBPSK_Demod(r, fs, Rb);
-    L = floor(min(numel(bhat), numel(bits_pcm))/8)*8;
-    BERs(k) = mean(xor(bits_pcm(1:L), bhat(1:L)));
-end
-figure; semilogy(SNRs, BERs,'-o'); grid on;
-xlabel('SNR / dB'); ylabel('BER'); title('DBPSK 误码率曲线');
+%% ========= (I) BER 曲线：SNR 扫描 =========
+SNRs = 0:2:14;  
+BERs = zeros(size(SNRs));
 
-%% ========= (J) （可选）硬件DA输出 =========
-% 若要上板到示波器看I/Q：
-% CH1 = rx(1:2:end); CH2 = rx(2:2:end);  % 例：随便拆出两路
-% divFreq = 30720000/fs - 1;  % 参考你们板卡约束
+for kk=1:numel(SNRs)
+    npow_k = tx_pow/10^(SNRs(kk)/10);
+    n_k = sqrt(npow_k)*randn(size(tx));
+    r_k = tx + n_k;
+
+    t_rx_k = (0:length(r_k)-1)/fs;
+    local_carrier_k = cos(2*pi*Fc*t_rx_k);
+    r_bb = r_k .* local_carrier_k;
+    r_matched = filter(srrc, 1, r_bb);
+
+    bhat_all = dbpsk_srrc_demod(r_matched, numel(bits_pcm), Ns, span);
+    Lk = floor(min(numel(bhat_all), numel(bits_pcm))/8)*8;
+    BERs(kk) = mean(xor(bits_pcm(1:Lk), bhat_all(1:Lk)));
+end
+
+figure; semilogy(SNRs, BERs,'-o'); grid on;
+xlabel('SNR / dB'); ylabel('BER'); title('DBPSK + SRRC 误码率曲线');
+
+%% ========= (J) （可选）硬件 DA 输出 =========
+% CH1 = rx(1:2:end); 
+% CH2 = rx(2:2:end);  
+% divFreq = 30720000/fs - 1;  
 % isGain = 1;
 % DA_OUT(CH1, CH2, divFreq, length(CH1), isGain);
+
+%% ========= 本脚本结束，下面是局部函数 =========
+function bits_hat = dbpsk_srrc_demod(rx_matched, bit_num, Ns, span)
+% 基于 SRRC 匹配滤波输出的简单 DBPSK 解调
+% rx_matched : 匹配滤波输出
+% bit_num    : 需要解调的比特数（通常 = length(bits_pcm)）
+% Ns         : 每个符号采样点
+% span       : SRRC span（符号数）
+
+    delay_rrc = span * Ns;          % 两个 SRRC 级联的总群时延
+    start_idx = delay_rrc + 1;      % 第一个有效符号采样点
+
+    sample_pos = start_idx:Ns:length(rx_matched);
+    sample_pos = sample_pos(1:min(bit_num, numel(sample_pos)));
+
+    rx_smpl = rx_matched(sample_pos);
+    d_hat = sign(rx_smpl);
+    d_hat(d_hat == 0) = 1;          % 避免 0
+
+    N = numel(d_hat);
+    sym_hat  = zeros(1, N);
+    bits_hat = zeros(1, N);
+
+    % 第一个符号直接判决
+    sym_hat(1)  = d_hat(1);
+    bits_hat(1) = (sym_hat(1)+1)/2;
+
+    % 后续符号：d(k)*d(k-1) = 原来的 (2b-1)
+    for ii = 2:N
+        sym_hat(ii)  = d_hat(ii) * d_hat(ii-1);
+        bits_hat(ii) = (sym_hat(ii)+1)/2;
+    end
+
+    bits_hat = bits_hat(:).';       % 保证行向量
+end
