@@ -62,27 +62,13 @@ symbols_demo = 2*bps - 1;
 beta = 0.75;          % 滚降系数
 span = 8;             % 滤波器跨度（符号数）
 srrc = rcosdesign(beta, span, Ns, 'sqrt');   % 根升余弦脉冲
-delay_rrc = span * Ns;   % ★ 两个 SRRC 级联总群时延（符号数*Ns）
+delay_rrc = span * Ns;   % 两个 SRRC 级联总群时延（符号数*Ns）
 
 % ========== 1) 矩形脉冲 ==========
 rect = upsample(symbols_demo, Ns);
 rect_wave = filter(ones(1, Ns), 1, rect);
-
 % ========== 2) SRRC 脉冲 ==========
 srrc_wave_demo = filter(srrc, 1, upsample(symbols_demo, Ns));
-
-figure;
-subplot(2,1,1);
-plot(rect_wave, 'b'); grid on;
-title('矩形脉冲成形（矩形滤波器）');
-ylabel('幅度');
-xlim([0, Nshow*Ns]);
-
-subplot(2,1,2);
-plot(srrc_wave_demo, 'r'); grid on;
-title('SRRC 脉冲成形（根升余弦）');
-xlabel('样本点'); ylabel('幅度');
-xlim([0, Nshow*Ns]);
 
 %% ========= (C.Y) 乘法器：基带 → 带通（演示） =========
 t_show = (0:length(rect_wave)-1)/fs;
@@ -158,11 +144,9 @@ disp("正式 SRRC 调制信号生成完毕。");
 
 % 正式已调信号频谱
 [fx, SX] = simple_spectrum(tx, fs);
-figure; plot(fx/1e6, 20*log10(abs(SX)+1e-12)); grid on;
-xlabel('f / MHz'); ylabel('|X(f)| dB'); title('正式已调信号幅度谱（dB）');
 
 %% ========= (D) 加噪（AWGN 信道） =========
-SNRdB = 10;  % 单点演示
+SNRdB = 20;  % 单点演示
 tx_pow = mean(tx.^2);
 npow   = tx_pow/10^(SNRdB/10);
 noise  = sqrt(npow)*randn(size(tx));
@@ -247,30 +231,6 @@ sample_pos = sample_pos(sample_pos <= length(rx_bb_full));
 rx_samples = rx_bb_full(sample_pos);
 rx_decision = rx_samples > 0;
 
-% 比特对比（原始 PCM bit vs 直接幅度判决 bit）
-Nshow_bits = min(500, length(rx_decision));
-figure;
-subplot(2,1,1);
-stem(1:Nshow_bits, bits_ref(1:Nshow_bits),'b','LineWidth',1.2);
-grid on;
-title('原始 PCM 比特（截取前若干位）');
-ylabel('bit'); xlim([1 Nshow_bits]);
-
-subplot(2,1,2);
-stem(1:Nshow_bits, rx_decision(1:Nshow_bits),'r','LineWidth',1.2);
-grid on;
-title('SRRC 抽样幅度判决得到的比特（示意）');
-xlabel('符号编号'); ylabel('bit'); xlim([1 Nshow_bits]);
-
-% SRRC 基带 + 抽样点标注
-Nplot_srrc = min(5000, length(rx_bb_full));
-figure;
-plot(rx_bb_full(1:Nplot_srrc),'m'); hold on; grid on;
-sample_pos_valid = sample_pos(sample_pos <= Nplot_srrc);
-stem(sample_pos_valid, rx_bb_full(sample_pos_valid),'r','filled');
-title('SRRC 匹配滤波基带信号 + 抽样点标注');
-xlabel('样本编号'); ylabel('幅度');
-legend('SRRC 基带','抽样点');
 
 %% ========= (F) BER 计算 =========
 BER_now = mean(xor(bits_ref, bits_hat));
@@ -279,67 +239,67 @@ fprintf('单点 SNR = %.1f dB 时，BER = %.4e\n', SNRdB, BER_now);
 %% ========= (FX) 四图对比：PCM 波形/比特 vs 解码 =========
 disp("绘制『四图对比』：PCM波形、SRRC波形、PCM比特、解调比特...");
 
-% ① PCM 原始采样波形 + PCM 抽样点
+
 Nplot_pcm = min(500, length(sampleData));
 
+% ① SRRC 匹配滤波后的基带波形 + 抽样点
 figure;
-subplot(2,1,1);
-plot(t_smp(1:Nplot_pcm), sampleData(1:Nplot_pcm),'b'); hold on; grid on;
-title('① PCM 原始采样波形');
-xlabel('时间 (s)'); ylabel('幅度');
-
-sampleIndex_pcm = (0:length(bits_ref)-1) * (1/sampleVal);
-sampleIndex_pcm = sampleIndex_pcm(sampleIndex_pcm < t_smp(end));
-
-pcm_sample_pos = round(sampleIndex_pcm * sampleVal + 1);
-pcm_sample_pos = pcm_sample_pos(pcm_sample_pos <= length(sampleData));
-
-stem(t_smp(pcm_sample_pos), sampleData(pcm_sample_pos),'r','filled');
-legend('PCM 波形','PCM 抽样点');
-
-% ② SRRC 匹配滤波后的基带波形 + 抽样点
 Nplot_srrc = min(5000, length(rx_matched));
-subplot(2,1,2);
+subplot(1,1,1);
 plot(rx_matched(1:Nplot_srrc),'m'); hold on; grid on;
-title('② SRRC 匹配滤波基带信号 + 抽样点标注');
+title(' SRRC 匹配滤波基带信号 + 抽样点标注');
 xlabel('样本编号'); ylabel('幅度');
 
 sample_pos_valid = sample_pos(sample_pos <= Nplot_srrc);
 stem(sample_pos_valid, rx_matched(sample_pos_valid),'r','filled');
 legend('SRRC 基带','抽样点');
 
-% ③ PCM 原始比特
+% ② PCM 原始比特
 Nshow_bits = min(80, length(bits_ref));
 figure;
 subplot(2,1,1);
 stem(1:Nshow_bits, bits_ref(1:Nshow_bits),'b','LineWidth',1.2);
 grid on;
-title('③ PCM 原始比特（前 80 位）');
+title(' PCM 原始比特（前 80 位）');
 xlabel('符号编号'); ylabel('bit');
 xlim([1 Nshow_bits]);
 
-% ④ DBPSK 解调最终比特
+% ③ DBPSK 解调最终比特
 subplot(2,1,2);
 stem(1:Nshow_bits, bits_hat(1:Nshow_bits),'r','LineWidth',1.2);
 grid on;
-title('④ DBPSK+SRRC 解调比特（前 80 位）');
+title(' DBPSK+SRRC 解调比特（前 80 位）');
 xlabel('符号编号'); ylabel('bit');
 xlim([1 Nshow_bits]);
 
 %% ========= (G) 眼图（直接用 rx_matched） =========
-Leye = floor(length(rx_matched)/Ns) * Ns;
+Leye = floor((length(rx_matched) - delay_rrc)/Ns) * Ns;
 if Leye > 0
-    eye_mat = reshape(rx_matched(1:Leye), Ns, []);
+    % 截取有效数据（去除滤波器延迟部分）
+    valid_eye_data = rx_matched(delay_rrc+1:delay_rrc+Leye);
+    
+    % 关键修改：对眼图数据进行循环移位半个符号
+    shift_samples = round(Ns/2);  % 半个符号的样本数
+    shifted_eye_data = circshift(valid_eye_data, -shift_samples);
+    
+    % 重新整形为眼图矩阵
+    eye_mat = reshape(shifted_eye_data, Ns, []);
+    
     figure;
-    plot(eye_mat(:, 1: min(40, size(eye_mat,2))), 'y'); grid on;
-    title('接收端眼图（rx\_matched 折叠）');
-    xlabel('样本点'); ylabel('幅度');
+    plot(eye_mat(:, 1:min(40, size(eye_mat,2))), 'b-', 'LineWidth', 0.5); 
+    grid on;
+    title('接收端眼图（时间对齐后）');
+    xlabel('每个符号内的样本点'); 
+    ylabel('幅度');
+    
+    % 标记最佳采样点
+    hold on;
+    plot([Ns/2, Ns/2], [min(shifted_eye_data), max(shifted_eye_data)], 'r--', 'LineWidth', 2);
+    legend('眼图轨迹', '最佳采样点', 'Location', 'best');
+    hold off;
 end
-
 %% ========= (H) 频谱：输入/输出模拟信号 =========
-[fa, SA] = simple_spectrum(y_analog, Fs_in);
-figure; plot(fa/1e3, 20*log10(abs(SA)+1e-12)); grid on;
-xlabel('f / kHz'); ylabel('|S(f)| dB'); title('输入模拟信号频谱');
+
 
 % PCM 解码回"模拟"信号（8kHz 域）
 outData = PCM_13Decode(bits_hat);
@@ -350,16 +310,28 @@ plot(t_out, outData,'r'); grid on;
 legend('PCM 抽样后(发送侧)','PCM 解码后(接收侧)');
 title('输入/输出 "模拟" 波形（8kHz 域）'); xlabel('t/s');
 
+figure;
+subplot(2,1,1);
+[fa, SA] = simple_spectrum(y_analog, Fs_in);
+plot(fa/1e3, 20*log10(abs(SA)+1e-12)); grid on;
+xlabel('f / kHz'); ylabel('|S(f)| dB'); 
+title('输入模拟信号频谱');
+subplot(2,1,2);
 [fo, SO] = simple_spectrum(outData, sampleVal);
-figure; plot(fo/1e3, 20*log10(abs(SO)+1e-12)); grid on;
-xlabel('f / kHz'); ylabel('|S(f)| dB'); title('输出模拟信号频谱（解码后）');
-
+plot(fo/1e3, 20*log10(abs(SO)+1e-12)); grid on;
+xlabel('f / kHz'); ylabel('|S(f)| dB'); 
+title('输出模拟信号频谱（解码后）');
 %% ========= (I) BER 曲线：SNR 扫描 =========
-SNRs = 0:2:14;  
+SNRs = 0:2:14;
 BERs = zeros(size(SNRs));
 
-for kk=1:numel(SNRs)
-    npow_k = tx_pow/10^(SNRs(kk)/10);
+for kk = 1:numel(SNRs)
+    EbN0_dB = SNRs(kk);            % 现在把横坐标理解为 Eb/N0
+    EbN0    = 10^(EbN0_dB/10);
+
+    % 关键修改：为了得到指定的 Eb/N0，噪声功率要多乘一个 Ns
+    npow_k  = tx_pow * Ns / EbN0;  % 和你原来相比，多了一个 Ns
+
     n_k = sqrt(npow_k)*randn(size(tx));
     r_k = tx + n_k;
 
@@ -373,8 +345,11 @@ for kk=1:numel(SNRs)
     BERs(kk) = mean(xor(bits_pcm(1:Lk), bhat_all(1:Lk)));
 end
 
-figure; semilogy(SNRs, BERs,'-o'); grid on;
-xlabel('SNR / dB'); ylabel('BER'); title('DBPSK + SRRC 误码率曲线');
+figure; semilogy(SNRs, BERs, '-o'); grid on;
+xlabel('E_b/N_0 / dB'); ylabel('BER');
+title('DBPSK + SRRC 误码率曲线');
+ylim([1e-5 1]);
+
 
 %% ========= (J) （可选）硬件 DA 输出 =========
 % CH1 = rx(1:2:end); 
