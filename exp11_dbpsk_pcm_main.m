@@ -64,7 +64,7 @@ rect = upsample(symbols, Ns);  % 上采样后保持一个矩形符号
 rect_wave = filter(ones(1, Ns), 1, rect); % 矩形成形（累加）
 
 % ========== 2) SRRC 脉冲（根升余弦）==========
-beta = 0.35;
+beta = 0.75;
 span = 8;
 srrc = rcosdesign(beta, span, Ns, 'sqrt');
 srrc_wave = filter(srrc, 1, upsample(symbols, Ns));
@@ -141,13 +141,38 @@ xlabel('样本点');
 figure; plot(fx/1e6, 20*log10(abs(SX)+1e-12)); grid on;
 xlabel('f / MHz'); ylabel('|X(f)| dB'); title('已调信号幅度谱（dB）');
 
+%% ========= (C.Z) SRRC 调制 vs 未成形调制：频谱对比 =========
+
+% 自动选择 FFT 点数（不超过信号长度）
+Nfft = min([4096, length(rect_mod), length(srrc_mod)]);
+
+% 1) 未成形矩形脉冲 × 载波
+[fx_rect, S_rect] = simple_spectrum(rect_mod(1:Nfft), fs);
+
+% 2) SRRC 脉冲成形 × 载波
+[fx_srrc, S_srrc] = simple_spectrum(srrc_mod(1:Nfft), fs);
+
+figure;
+subplot(2,1,1);
+plot(fx_rect/1e6, 20*log10(abs(S_rect)+1e-12), 'b'); grid on;
+title('未成形（矩形脉冲）调制后的带通信号频谱');
+xlabel('f / MHz'); ylabel('|X(f)| dB');
+
+subplot(2,1,2);
+plot(fx_srrc/1e6, 20*log10(abs(S_srrc)+1e-12), 'r'); grid on;
+title('SRRC 脉冲成形后调制的带通信号频谱');
+xlabel('f / MHz'); ylabel('|X(f)| dB');
+
+
+
 
 %% ========= (D) 加噪（自写AWGN，不用工具箱） =========
 SNRdB = 10;  % 单次演示用
 tx_pow = mean(tx.^2);
 npow   = tx_pow/10^(SNRdB/10);
 noise  = 0.2*sqrt(npow)*randn(size(tx));
-rx     = tx + noise;
+% rx     = tx + noise;
+rx=tx;
 
 % 波形片段
 seg = 1:min(4000, numel(t));
@@ -155,8 +180,38 @@ figure; plot(t(seg), tx(seg), 'b', t(seg), rx(seg), 'r'); grid on;
 legend('tx','rx'); title(sprintf('DBPSK已调与加噪后波形, SNR=%.1f dB',SNRdB));
 xlabel('t/s');
 
+%% ========= (D.X) 接收端：乘法器 × SRRC 匹配滤波 =========
+
+% (1) 本地载波
+t_rx = (0:length(rx)-1)/fs;
+local_carrier = cos(2*pi*Fc*t_rx);
+
+% (2) 乘法器：带通 → 基带
+rx_bb = rx .* local_carrier;
+
+% (3) SRRC 匹配滤波（注意用与发送端相同的 srrc）
+rx_matched = filter(srrc, 1, rx_bb);
+
+% (4) 画对比：带通 vs 乘法器后 vs SRRC 匹配滤波后
+figure;
+Nplot2 = min(2000, length(rx));
+
+subplot(3,1,1);
+plot(rx(1:Nplot2),'b'); grid on;
+title('接收信号 rx（带通）');
+
+subplot(3,1,2);
+plot(rx_bb(1:Nplot2),'m'); grid on;
+title('rx × cos(2πF_ct)（乘法器输出，基带）');
+
+subplot(3,1,3);
+plot(rx_matched(1:Nplot2),'r'); grid on;
+title('SRRC 匹配滤波输出（基带信号）');
+xlabel('样本点');
+
+
 %% ========= (E) DBPSK 解调（差分乘积+滑动平均） =========
-[bits_hat, eye_buf] = DBPSK_Demod(rx, fs, Rb);
+[bits_hat, eye_buf] = DBPSK_Demod(rx_matched, fs, Rb);
 %============================================================================
 % 分离 I/Q 信号（解调后的信号）
 %CH1 = real(rx);  % I 路信号
