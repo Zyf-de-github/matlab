@@ -145,6 +145,7 @@ disp("正式 SRRC 调制信号生成完毕。");
 % 正式已调信号频谱
 [fx, SX] = simple_spectrum(tx, fs);
 
+
 %% ========= (D) 加噪（AWGN 信道） =========
 SNRdB = 20;  % 单点演示
 tx_pow = mean(tx.^2);
