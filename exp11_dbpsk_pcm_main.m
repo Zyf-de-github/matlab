@@ -352,13 +352,6 @@ title('DBPSK + SRRC 误码率曲线');
 ylim([1e-5 1]);
 
 
-%% ========= (J) （可选）硬件 DA 输出 =========
-% CH1 = rx(1:2:end); 
-% CH2 = rx(2:2:end);  
-% divFreq = 30720000/fs - 1;  
-% isGain = 1;
-% DA_OUT(CH1, CH2, divFreq, length(CH1), isGain);
-
 %% ========= 本脚本结束，下面是局部函数 =========
 function bits_hat = dbpsk_srrc_demod(rx_matched, bit_num, Ns, span)
 % 基于 SRRC 匹配滤波输出的简单 DBPSK 解调
